@@ -234,6 +234,39 @@ class CudaComputeKernel(BaseKernel):
         return self._impl(*args)
 
 
+class CudaComputeKernelWithFallback(BaseKernel):
+    """
+    Kernel implementation using cuda.compute with CuPy fallback.
+
+    This kernel tries to use cuda.compute first for performance, but falls
+    back to CuPy kernels if the cuda.compute implementation raises
+    CudaComputeUnsupportedError (e.g., for unsupported parameter combinations).
+    """
+
+    def __init__(
+        self,
+        impl: Callable[..., Any],
+        key: KernelKeyType,
+        get_fallback: Callable[[KernelKeyType], CupyKernel],
+    ):
+        super().__init__(impl, key)
+        self._cupy = Cupy.instance()
+        self._get_fallback = get_fallback
+        self._fallback_kernel: CupyKernel | None = None
+
+    def __call__(self, *args) -> None:
+        from awkward._connect.cuda._compute import CudaComputeUnsupportedError
+
+        args = maybe_materialize(*args)
+        try:
+            return self._impl(*args)
+        except CudaComputeUnsupportedError:
+            # Fall back to CuPy kernel
+            if self._fallback_kernel is None:
+                self._fallback_kernel = self._get_fallback(self._key)
+            return self._fallback_kernel(*args)
+
+
 class TypeTracerKernelError(KernelError):
     def __init__(self):
         self.str = None

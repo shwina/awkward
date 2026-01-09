@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from awkward._backends.backend import Backend, KernelKeyType
 from awkward._backends.dispatch import register_backend
-from awkward._kernels import CudaComputeKernel, CupyKernel, NumpyKernel
+from awkward._kernels import (
+    CudaComputeKernel,
+    CudaComputeKernelWithFallback,
+    CupyKernel,
+    NumpyKernel,
+)
 from awkward._nplikes.cupy import Cupy
 from awkward._nplikes.numpy import Numpy
 from awkward._nplikes.numpy_like import NumpyMetadata
@@ -35,7 +40,17 @@ class CupyBackend(Backend):
 
         kernel_name = index[0] if index else ""
 
-        # Try CuPy kernels first (primary implementation)
+        # For operations where CCCL is preferred (faster), try CCCL first
+        if self._prefers_cuda_compute(kernel_name):
+            if cuda_compute.is_available():
+                compute_impl = self._get_cuda_compute_impl(kernel_name)
+                if compute_impl is not None:
+                    return CudaComputeKernelWithFallback(
+                        compute_impl, index, self._get_cupy_kernel
+                    )
+            # Fall through to CuPy if CCCL not available
+
+        # Try CuPy kernels
         cupy = cuda.import_cupy("Awkward Arrays with CUDA")
         _cuda_kernels = cuda.initialize_cuda_kernels(cupy)
         func = _cuda_kernels[index]
@@ -66,15 +81,42 @@ class CupyBackend(Backend):
             f"CuPy kernel not found: {index!r}"
         )
 
+    def _get_cupy_kernel(self, index: KernelKeyType) -> CupyKernel:
+        """Get the CuPy kernel for the given index."""
+        from awkward._connect import cuda
+
+        cupy = cuda.import_cupy("Awkward Arrays with CUDA")
+        _cuda_kernels = cuda.initialize_cuda_kernels(cupy)
+        func = _cuda_kernels[index]
+        if func is None:
+            raise AssertionError(f"CuPy kernel not found: {index!r}")
+        return CupyKernel(func, index)
+
+    def _prefers_cuda_compute(self, kernel_name: str) -> bool:
+        """
+        Check if the given kernel operation should prefer cuda.compute over CuPy.
+
+        These are operations where the cuda.compute implementation is significantly
+        faster than the CuPy kernel, but the CuPy kernel still works as a fallback.
+
+        Currently prefers cuda.compute for:
+        - awkward_ListArray_combinations_length (k=2 only)
+        - awkward_ListArray_combinations (k=2 only)
+        """
+        return kernel_name in (
+            "awkward_ListArray_combinations_length",
+            "awkward_ListArray_combinations",
+        )
+
     def _supports_cuda_compute(self, kernel_name: str) -> bool:
         """
         Check if the given kernel operation is supported by cuda.compute.
 
+        These are operations where cuda.compute is required (no CuPy kernel exists).
+
         Currently supports:
         - awkward_sort
-        - awkward_argsort (future)
         """
-        # For now, we only support sort operations
         return kernel_name in ("awkward_sort",)
 
     def _get_cuda_compute_impl(self, kernel_name: str):
@@ -91,5 +133,9 @@ class CupyBackend(Backend):
 
         if kernel_name == "awkward_sort":
             return cuda_compute.segmented_sort
+        elif kernel_name == "awkward_ListArray_combinations_length":
+            return cuda_compute.combinations_length
+        elif kernel_name == "awkward_ListArray_combinations":
+            return cuda_compute.combinations
 
         return None
