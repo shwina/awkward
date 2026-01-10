@@ -4,41 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from awkward._connect.cuda._compute._utils import (
+    CudaComputeUnsupportedError,
+    _array_from_ptr,
+)
 from awkward._nplikes.cupy import Cupy
-
-# Cache for cuda.compute availability
-_cuda_compute_available: bool | None = None
-
-
-class CudaComputeUnsupportedError(Exception):
-    """
-    Raised when cuda.compute cannot handle the operation.
-
-    This signals to the backend that it should fall back to CuPy kernels.
-    """
-
-    pass
-
-
-def is_available() -> bool:
-    global _cuda_compute_available
-
-    if _cuda_compute_available is not None:
-        return _cuda_compute_available
-
-    try:
-        import cuda.compute  # noqa: F401
-
-        _cuda_compute_available = True
-    except ImportError:
-        _cuda_compute_available = False
-
-    return _cuda_compute_available
-
-
-# ---------------------------------------------------------------------------
-# Combinations k=2 helper functions for cuda.compute
-# ---------------------------------------------------------------------------
 
 
 def _hi_minus_lo(hi, lo):
@@ -94,47 +64,6 @@ def _unrank_k2(input_tuple):
     j = ii + 1 + t
 
     return (b + i, b + j)
-
-
-def segmented_sort(
-    toptr,
-    fromptr,
-    length,
-    offsets,
-    offsetslength,
-    parentslength,
-    ascending,
-    stable,
-):
-    from cuda.compute import SortOrder, segmented_sort
-
-    cupy_nplike = Cupy.instance()
-    cp = cupy_nplike._module
-
-    # Ensure offsets are int64 as expected by segmented_sort
-    if offsets.dtype != cp.int64:
-        offsets = offsets.astype(cp.int64)
-
-    num_segments = offsetslength - 1
-    num_items = int(offsets[-1]) if len(offsets) > 0 else 0
-
-    start_offsets = offsets[:-1]
-    end_offsets = offsets[1:]
-
-    order = SortOrder.ASCENDING if ascending else SortOrder.DESCENDING
-
-    segmented_sort(
-        fromptr,  # d_in_keys
-        toptr,  # d_out_keys
-        None,  # d_in_values (not sorting values, just keys)
-        None,  # d_out_values
-        num_items,  # num_items
-        num_segments,  # num_segments
-        start_offsets,  # start_offsets_in
-        end_offsets,  # end_offsets_in
-        order,  # order (ASCENDING or DESCENDING)
-        None,  # stream (use default stream)
-    )
 
 
 def combinations_length(
@@ -311,20 +240,3 @@ def combinations(
 
         start = end
 
-
-def _array_from_ptr(ptr, size, dtype, cp):
-    """
-    Create a CuPy array from a raw device pointer.
-
-    Args:
-        ptr: Raw device pointer (as integer)
-        size: Number of elements
-        dtype: NumPy/CuPy dtype
-        cp: CuPy module
-
-    Returns:
-        CuPy array viewing the memory at ptr
-    """
-    mem = cp.cuda.UnownedMemory(int(ptr), size * np.dtype(dtype).itemsize, owner=None)
-    memptr = cp.cuda.MemoryPointer(mem, 0)
-    return cp.ndarray(size, dtype=dtype, memptr=memptr)
