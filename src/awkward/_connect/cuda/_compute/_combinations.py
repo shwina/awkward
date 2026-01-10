@@ -21,6 +21,12 @@ def _count_pairs(n):
     return (n * (n - 1) // 2) if n >= 2 else np.int64(0)
 
 
+def _count_pairs_from_stops_starts(pair):
+    """Compute C(stops - starts, 2) directly from (stops, starts) pair."""
+    n = pair[0] - pair[1]  # stops - starts = length
+    return (n * (n - 1) // 2) if n >= 2 else np.int64(0)
+
+
 def _unrank_k2(input_tuple):
     """
     Unrank a global output index to (out0, out1) gather indices.
@@ -100,7 +106,7 @@ def combinations_length(
         )
 
     import cuda.compute as cc
-    from cuda.compute import OpKind
+    from cuda.compute import OpKind, TransformIterator, ZipIterator
 
     cupy_nplike = Cupy.instance()
     cp = cupy_nplike._module
@@ -109,21 +115,21 @@ def combinations_length(
     starts64 = starts.astype(cp.int64, copy=False)
     stops64 = stops.astype(cp.int64, copy=False)
 
-    # Compute lengths: lengths[i] = stops[i] - starts[i]
-    lengths = cp.empty(length, dtype=cp.int64)
-    cc.binary_transform(stops64, starts64, lengths, _hi_minus_lo, length)
+    # Create lazy iterator that computes counts on-the-fly:
+    # counts[i] = C(stops[i] - starts[i], 2)
+    zip_in = ZipIterator(stops64, starts64)
+    counts_iter = TransformIterator(zip_in, _count_pairs_from_stops_starts)
 
-    # Compute counts: counts[i] = C(lengths[i], 2)
-    counts = cp.empty(length, dtype=cp.int64)
-    cc.unary_transform(lengths, counts, _count_pairs, length)
-
-    # Compute output offsets via exclusive scan
+    # Compute output offsets via exclusive scan directly from the iterator
     init = np.array([0], dtype=np.int64)
-    cc.exclusive_scan(counts, tooffsets[:length], OpKind.PLUS, init, length)
+    cc.exclusive_scan(counts_iter, tooffsets[:length], OpKind.PLUS, init, length)
 
     # Set total and final offset
     if length > 0:
-        total_pairs = int((tooffsets[length - 1] + counts[length - 1]).item())
+        # Compute last count directly: C(stops[-1] - starts[-1], 2)
+        last_len = int(stops64[length - 1].item()) - int(starts64[length - 1].item())
+        last_count = (last_len * (last_len - 1) // 2) if last_len >= 2 else 0
+        total_pairs = int(tooffsets[length - 1].item()) + last_count
     else:
         total_pairs = 0
     tooffsets[length] = np.int64(total_pairs)
@@ -166,7 +172,7 @@ def combinations(
         )
 
     import cuda.compute as cc
-    from cuda.compute import OpKind, ZipIterator
+    from cuda.compute import OpKind, TransformIterator, ZipIterator
 
     cupy_nplike = Cupy.instance()
     cp = cupy_nplike._module
@@ -175,22 +181,24 @@ def combinations(
     starts64 = starts.astype(cp.int64, copy=False)
     stops64 = stops.astype(cp.int64, copy=False)
 
-    # Compute lengths
+    # Compute lengths (needed for unranking)
     lengths = cp.empty(length, dtype=cp.int64)
     cc.binary_transform(stops64, starts64, lengths, _hi_minus_lo, length)
 
-    # Compute counts
-    counts = cp.empty(length, dtype=cp.int64)
-    cc.unary_transform(lengths, counts, _count_pairs, length)
+    # Create lazy iterator for counts: counts[i] = C(lengths[i], 2)
+    counts_iter = TransformIterator(lengths, _count_pairs)
 
-    # Compute output offsets
+    # Compute output offsets via exclusive scan directly from the iterator
     out_offsets = cp.empty(length + 1, dtype=cp.int64)
     out_offsets[0] = np.int64(0)
     init = np.array([0], dtype=np.int64)
-    cc.exclusive_scan(counts, out_offsets[:length], OpKind.PLUS, init, length)
+    cc.exclusive_scan(counts_iter, out_offsets[:length], OpKind.PLUS, init, length)
 
     if length > 0:
-        total_pairs = int((out_offsets[length - 1] + counts[length - 1]).item())
+        # Compute last count directly
+        last_len = int(lengths[length - 1].item())
+        last_count = (last_len * (last_len - 1) // 2) if last_len >= 2 else 0
+        total_pairs = int(out_offsets[length - 1].item()) + last_count
     else:
         total_pairs = 0
     out_offsets[length] = np.int64(total_pairs)
