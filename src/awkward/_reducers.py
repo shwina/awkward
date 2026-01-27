@@ -355,6 +355,23 @@ class Sum(KernelReducer):
         if array.dtype.kind == "M":
             raise ValueError(f"cannot compute the sum (ak.sum) of {array.dtype!r}")
 
+        if starts is not None:
+            kernel = array.backend.get_kernel(
+                (
+                    "awkward_reduce_sum_offsets",
+                    array.dtype.type,
+                    array.dtype.type,
+                    starts.dtype.type,
+                )
+            )
+            if kernel is not None:
+                result = array.backend.nplike.empty(outlength, dtype=array.dtype)
+                assert starts.nplike is array.backend.nplike
+                array.backend.maybe_kernel_error(
+                    kernel(result, array.data, starts.data, outlength)
+                )
+                return ak.contents.NumpyArray(result, backend=array.backend)
+
         # Boolean kernels are special; the result is _not_ a boolean
         if array.dtype == np.bool_:
             result = array.backend.nplike.empty(

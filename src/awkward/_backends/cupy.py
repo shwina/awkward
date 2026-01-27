@@ -35,7 +35,13 @@ class CupyBackend(Backend):
 
         kernel_name = index[0] if index else ""
 
-        # Try CuPy kernels first (primary implementation)
+        # Try cuda.compute first (preferred implementation)
+        if self._supports_cuda_compute(kernel_name) and cuda_compute.is_available():
+            compute_impl = self._get_cuda_compute_impl(kernel_name)
+            if compute_impl is not None:
+                return CudaComputeKernel(compute_impl, index)
+
+        # Fall back to CuPy kernels
         cupy = cuda.import_cupy("Awkward Arrays with CUDA")
         _cuda_kernels = cuda.initialize_cuda_kernels(cupy)
         func = _cuda_kernels[index]
@@ -44,21 +50,14 @@ class CupyBackend(Backend):
             # CuPy kernel exists, use it
             return CupyKernel(func, index)
 
-        # CuPy kernel not found, try cuda.compute as fallback
-        if self._supports_cuda_compute(kernel_name):
-            if cuda_compute.is_available():
-                # Return CudaComputeKernel for supported operations
-                compute_impl = self._get_cuda_compute_impl(kernel_name)
-                if compute_impl is not None:
-                    return CudaComputeKernel(compute_impl, index)
-            else:
-                # cuda.compute is needed but not available
-                raise NotImplementedError(
-                    f"Operation '{kernel_name}' on CUDA backend requires cuda.compute library "
-                    f"(no CuPy kernel available). "
-                    f"Please install cuda.compute or use the CPU backend: "
-                    f"ak.to_backend(array, 'cpu')"
-                )
+        # cuda.compute is needed but not available
+        if self._supports_cuda_compute(kernel_name) and not cuda_compute.is_available():
+            raise NotImplementedError(
+                f"Operation '{kernel_name}' on CUDA backend requires cuda.compute library "
+                f"(no CuPy kernel available). "
+                f"Please install cuda.compute or use the CPU backend: "
+                f"ak.to_backend(array, 'cpu')"
+            )
 
         # Neither CuPy kernel nor cuda.compute implementation found
         raise AssertionError(
@@ -74,11 +73,13 @@ class CupyBackend(Backend):
         - awkward_sort
         - awkward_argsort (future)
         - awkward_argmax
+        - awkward_sum_offsets
         """
         # For now, we only support these operations
         return kernel_name in (
             "awkward_sort",
             "awkward_reduce_argmax",
+            "awkward_reduce_sum_offsets",
         )
 
     def _get_cuda_compute_impl(self, kernel_name: str):
@@ -98,5 +99,11 @@ class CupyBackend(Backend):
 
         if kernel_name == "awkward_reduce_argmax":
             return cuda_compute.awkward_reduce_argmax
+
+        if kernel_name == "awkward_reduce_argmin":
+            return cuda_compute.awkward_reduce_argmin
+
+        if kernel_name in ("awkward_reduce_sum_offsets",):
+            return cuda_compute.awkward_reduce_sum_offsets
 
         return None

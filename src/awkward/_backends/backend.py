@@ -32,6 +32,12 @@ class Backend(PublicSingleton, ABC):
     def __getitem__(self, key: KernelKeyType) -> KernelType:
         raise NotImplementedError
 
+    def get_kernel(self, key: KernelKeyType) -> KernelType | None:
+        try:
+            return self[key]
+        except (NotImplementedError, AssertionError, KeyError):
+            return None
+
     def prepare_reducer(self, reducer: ak._reducers.Reducer) -> ak._reducers.Reducer:
         return reducer
 

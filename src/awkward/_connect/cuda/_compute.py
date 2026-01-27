@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cuda.compute import ZipIterator, gpu_struct, segmented_reduce
+import numpy as np
 
 from awkward._nplikes.cupy import Cupy
 
@@ -11,22 +11,41 @@ cp = cupy_nplike._module
 
 # Cache for cuda.compute availability
 _cuda_compute_available: bool | None = None
+_cuda_compute_module = None
+_offsets_cache: dict[tuple[int, int, int, object], object] = {}
 
 
 def is_available() -> bool:
     global _cuda_compute_available
-
     if _cuda_compute_available is not None:
         return _cuda_compute_available
 
+    return _get_cuda_compute_module() is not None
+
+
+def _get_cuda_compute_module():
+    global _cuda_compute_available
+    global _cuda_compute_module
+
+    if _cuda_compute_module is not None:
+        return _cuda_compute_module
+
     try:
-        import cuda.compute  # noqa: F401
+        import cuda.compute as _cuda_compute_module
 
         _cuda_compute_available = True
     except ImportError:
         _cuda_compute_available = False
+        return None
 
-    return _cuda_compute_available
+    return _cuda_compute_module
+
+
+def _require_cuda_compute():
+    module = _get_cuda_compute_module()
+    if module is None:
+        raise ImportError("cuda.compute is not available")
+    return module
 
 
 def segmented_sort(
@@ -39,7 +58,7 @@ def segmented_sort(
     ascending,
     stable,
 ):
-    from cuda.compute import SortOrder, segmented_sort
+    cuda_compute = _require_cuda_compute()
 
     cupy_nplike = Cupy.instance()
     cp = cupy_nplike._module
@@ -54,9 +73,13 @@ def segmented_sort(
     start_offsets = offsets[:-1]
     end_offsets = offsets[1:]
 
-    order = SortOrder.ASCENDING if ascending else SortOrder.DESCENDING
+    order = (
+        cuda_compute.SortOrder.ASCENDING
+        if ascending
+        else cuda_compute.SortOrder.DESCENDING
+    )
 
-    segmented_sort(
+    cuda_compute.segmented_sort(
         fromptr,  # d_in_keys
         toptr,  # d_out_keys
         None,  # d_in_values (not sorting values, just keys)
@@ -163,3 +186,24 @@ def awkward_reduce_argmax(
     # pass the result outside the function
     result_v = result.view()
     result_v[...] = _result
+
+
+def awkward_reduce_sum_offsets(
+    result,
+    input_data,
+    offsets,
+    outlength,
+):
+    cuda_compute = _require_cuda_compute()
+    out_dtype = result.dtype
+
+    def segment_reduce_op(segment_id: np.int64):
+        start_idx = offsets[segment_id]
+        end_idx = offsets[segment_id + 1]
+        segment = input_data[start_idx:end_idx]
+        if not len(segment):
+            return 0
+        return sum(segment)
+
+    segment_ids = cuda_compute.CountingIterator(np.int64(0))
+    cuda_compute.unary_transform(segment_ids, result, segment_reduce_op, outlength)
