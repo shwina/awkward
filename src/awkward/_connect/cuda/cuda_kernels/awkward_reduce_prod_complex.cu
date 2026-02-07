@@ -7,8 +7,7 @@
 //         grid_size = math.floor((lenparents + block[0] - 1) / block[0])
 //     else:
 //         grid_size = 1
-//     temp = cupy.tile([1, 0], lenparents)
-//     temp = temp.astype(cupy.dtype(toptr.dtype))
+//     temp = cupy.zeros(2 * grid_size * block[0], dtype=toptr.dtype)
 //     cuda_kernel_templates.get_function(fetch_specialization(["awkward_reduce_prod_complex_a", cupy.dtype(toptr.dtype).type, cupy.dtype(fromptr.dtype).type, parents.dtype]))((grid_size,), block, (toptr, fromptr, parents, lenparents, outlength, temp, invocation_index, err_code))
 //     cuda_kernel_templates.get_function(fetch_specialization(["awkward_reduce_prod_complex_b", cupy.dtype(toptr.dtype).type, cupy.dtype(fromptr.dtype).type, parents.dtype]))((grid_size,), block, (toptr, fromptr, parents, lenparents, outlength, temp, invocation_index, err_code))
 // out["awkward_reduce_prod_complex_a", {dtype_specializations}] = None
@@ -52,75 +51,49 @@ awkward_reduce_prod_complex_b(
     uint64_t invocation_index,
     uint64_t* err_code) {
   if (err_code[0] == NO_ERROR) {
-
-    // global indices and thread-local index
-    int64_t base_thread = blockIdx.x * blockDim.x;
     int64_t idx = threadIdx.x;
-    int64_t thread_id = base_thread + idx;
+    int64_t thread_id = blockIdx.x * blockDim.x + idx;
 
     // load input into temp (real, imag)
     if (thread_id < lenparents) {
       temp[thread_id * 2]     = fromptr[thread_id * 2];
       temp[thread_id * 2 + 1] = fromptr[thread_id * 2 + 1];
     }
-    // ensure other threads don't read uninitialized entries in the block
     __syncthreads();
 
-    if (thread_id < lenparents) {
-      // Perform in-block tree reduction across threads, but only merge elements
-      // that share the same parent. We'll reduce so that the rightmost thread
-      // in each run of equal-parents holds the product of that run.
-      for (int64_t stride = 1; stride < blockDim.x; stride *= 2) {
-        // compute the partner index (global)
-        int64_t partner_id = thread_id - stride;
-
-        // default: no partner -> keep own value
-        double left_r = (double)temp[thread_id * 2];
-        double left_i = (double)temp[thread_id * 2 + 1];
-        double res_r  = left_r;
-        double res_i  = left_i;
-
-        // if this thread has a valid partner in the block and the partner
-        // has the same parent, then multiply own value by partner's value
-        if (idx >= stride && partner_id >= 0 &&
-            parents[thread_id] == parents[partner_id]) {
-
-          double right_r = (double)temp[partner_id * 2];
-          double right_i = (double)temp[partner_id * 2 + 1];
-
-          // complex multiply: (a+ib) * (c+id) = (a*c - b*d) + i(a*d + b*c)
-          // Here we compute left * right
-          res_r = left_r * right_r - left_i * right_i;
-          res_i = left_r * right_i + left_i * right_r;
+    // Perform in-block tree reduction across threads, but only merge elements
+    // that share the same parent. We'll reduce so that the rightmost thread
+    // in each run of equal-parents holds the product of that run.
+    for (int64_t stride = 1; stride < blockDim.x; stride *= 2) {
+      T right_r = (T)1;
+      T right_i = (T)0;
+      if (thread_id < lenparents) {
+        int64_t partner = thread_id - stride;
+        if (idx >= stride && partner >= 0 && partner < lenparents &&
+            parents[thread_id] == parents[partner]) {
+          right_r = temp[partner * 2];
+          right_i = temp[partner * 2 + 1];
         }
-
-        // barrier to make sure all reads are done before writes
-        __syncthreads();
-
-        // write back reduced value
-        temp[thread_id * 2]     = (T)res_r;
-        temp[thread_id * 2 + 1] = (T)res_i;
-
-        // sync before next stride
-        __syncthreads();
       }
+      __syncthreads();
 
-      // after reduction, the thread that is the end of a parent-run (or last in block)
-      // should push its candidate into the global toptr using atomic multiply
+      if (thread_id < lenparents) {
+        T left_r = temp[thread_id * 2];
+        T left_i = temp[thread_id * 2 + 1];
+        // complex multiply: (left) * (right)
+        T res_r = left_r * right_r - left_i * right_i;
+        T res_i = left_r * right_i + left_i * right_r;
+        temp[thread_id * 2]     = res_r;
+        temp[thread_id * 2 + 1] = res_i;
+      }
+      __syncthreads();
+    }
+
+    if (thread_id < lenparents) {
       int64_t parent = parents[thread_id];
-      bool is_end_of_run = (idx == blockDim.x - 1) ||
-                           (thread_id == lenparents - 1) ||
-                           (parents[thread_id] != parents[thread_id + 1]);
-
-      if (is_end_of_run) {
-        // candidate is the reduced product for this run
+      if (idx == blockDim.x - 1 || thread_id == lenparents - 1 || parents[thread_id] != parents[thread_id + 1]) {
         T cand_r = temp[thread_id * 2];
         T cand_i = temp[thread_id * 2 + 1];
-
-        // atomic multiplication into toptr[parent*2 .. parent*2+1]
-        // assume atomicMulComplex(&real, &imag, cand_real, cand_imag) exists and
-        // does an atomic read-modify-write multiply in double precision, preserving
-        // IEEE semantics (NaN/Inf propagation).
         atomicMulComplex(&toptr[parent * 2], &toptr[parent * 2 + 1], cand_r, cand_i);
       }
     }

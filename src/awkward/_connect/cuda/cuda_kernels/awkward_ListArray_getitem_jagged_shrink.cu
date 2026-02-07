@@ -7,7 +7,7 @@
 //         len_array = int(slicestops[length - 1])
 //     else:
 //         len_array = length
-//     scan_in_array_k = cupy.zeros(len_array, dtype=cupy.int64)
+//     scan_in_array_k = cupy.zeros(length + 1, dtype=cupy.int64)
 //     scan_in_array_tosmalloffsets = cupy.zeros(length + 1, dtype=cupy.int64)
 //     scan_in_array_tolargeoffsets = cupy.zeros(length + 1, dtype=cupy.int64)
 //     cuda_kernel_templates.get_function(fetch_specialization(["awkward_ListArray_getitem_jagged_shrink_a", tocarry.dtype, tosmalloffsets.dtype, tolargeoffsets.dtype, slicestarts.dtype, slicestops.dtype, missing.dtype]))(grid, block, (tocarry, tosmalloffsets, tolargeoffsets, slicestarts, slicestops, length, missing, scan_in_array_k, scan_in_array_tosmalloffsets, scan_in_array_tolargeoffsets, invocation_index, err_code))

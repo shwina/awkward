@@ -60,7 +60,9 @@ awkward_reduce_countnonzero_complex_b(
         val = temp[thread_id - stride];
       }
       __syncthreads();
-      temp[thread_id] += val;
+      if (thread_id < lenparents) {
+        temp[thread_id] += val;
+      }
       __syncthreads();
     }
 
