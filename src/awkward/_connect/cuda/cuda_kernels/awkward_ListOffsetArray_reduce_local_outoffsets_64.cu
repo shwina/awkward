@@ -4,15 +4,17 @@
 // def f(grid, block, args):
 //     (outoffsets, parents, lenparents, outlength, invocation_index, err_code) = args
 //     if block[0] > 0:
-//         grid_size = math.floor((lenparents + block[0] - 1) / block[0])
+//         grid_size_parents = math.floor((lenparents + block[0] - 1) / block[0])
+//         grid_size_out = math.floor((outlength + block[0] - 1) / block[0])
 //     else:
-//         grid_size = 1
+//         grid_size_parents = 1
+//         grid_size_out = 1
 //     temp = cupy.zeros(lenparents, dtype=cupy.int64)
 //     scan_in_array = cupy.zeros(outlength, dtype=cupy.uint64)
-//     cuda_kernel_templates.get_function(fetch_specialization(["awkward_ListOffsetArray_reduce_local_outoffsets_64_a", cupy.dtype(outoffsets.dtype).type, parents.dtype]))((grid_size,), block, (outoffsets, parents, lenparents, outlength, scan_in_array, temp, invocation_index, err_code))
-//     cuda_kernel_templates.get_function(fetch_specialization(["awkward_ListOffsetArray_reduce_local_outoffsets_64_b", cupy.dtype(outoffsets.dtype).type, parents.dtype]))((grid_size,), block, (outoffsets, parents, lenparents, outlength, scan_in_array, temp, invocation_index, err_code))
+//     cuda_kernel_templates.get_function(fetch_specialization(["awkward_ListOffsetArray_reduce_local_outoffsets_64_a", cupy.dtype(outoffsets.dtype).type, parents.dtype]))((grid_size_out,), block, (outoffsets, parents, lenparents, outlength, scan_in_array, temp, invocation_index, err_code))
+//     cuda_kernel_templates.get_function(fetch_specialization(["awkward_ListOffsetArray_reduce_local_outoffsets_64_b", cupy.dtype(outoffsets.dtype).type, parents.dtype]))((grid_size_parents,), block, (outoffsets, parents, lenparents, outlength, scan_in_array, temp, invocation_index, err_code))
 //     scan_in_array = cupy.cumsum(scan_in_array)
-//     cuda_kernel_templates.get_function(fetch_specialization(["awkward_ListOffsetArray_reduce_local_outoffsets_64_c", cupy.dtype(outoffsets.dtype).type, parents.dtype]))((grid_size,), block, (outoffsets, parents, lenparents, outlength, scan_in_array, temp, invocation_index, err_code))
+//     cuda_kernel_templates.get_function(fetch_specialization(["awkward_ListOffsetArray_reduce_local_outoffsets_64_c", cupy.dtype(outoffsets.dtype).type, parents.dtype]))((grid_size_out,), block, (outoffsets, parents, lenparents, outlength, scan_in_array, temp, invocation_index, err_code))
 // out["awkward_ListOffsetArray_reduce_local_outoffsets_64_a", {dtype_specializations}] = None
 // out["awkward_ListOffsetArray_reduce_local_outoffsets_64_b", {dtype_specializations}] = None
 // out["awkward_ListOffsetArray_reduce_local_outoffsets_64_c", {dtype_specializations}] = None

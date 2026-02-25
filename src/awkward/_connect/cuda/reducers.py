@@ -170,7 +170,7 @@ class ArgMin(CudaComputeReducer):
                 parents.data,
                 offsets.data,
                 parents.length,
-                starts.data,
+                offsets.data,
                 outlength,
             )
 
@@ -247,7 +247,7 @@ class ArgMax(CudaComputeReducer):
                 parents.data,
                 offsets.data,
                 parents.length,
-                starts.data,
+                offsets.data,
                 outlength,
             )
 

@@ -191,7 +191,7 @@ class ArgMin(KernelReducer):
                     parents.data,
                     offsets.data,
                     parents.length,
-                    starts.data,
+                    offsets.data,
                     outlength,
                 )
             )
@@ -260,7 +260,7 @@ class ArgMax(KernelReducer):
                     parents.data,
                     offsets.data,
                     parents.length,
-                    starts.data,
+                    offsets.data,
                     outlength,
                 )
             )

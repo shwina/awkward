@@ -112,29 +112,20 @@ def local_idx_from_parents(parents, parents_length):
     return cp.arange(parents_length) - start_pos
 
 
-def starts_to_offsets(starts, parents_length):
-    offsets_dtype = starts.dtype
-
-    if parents_length == 0:
-        return cp.array([0], dtype=offsets_dtype)
-
-    offsets = cp.empty(len(starts) + 1, dtype=offsets_dtype)
-    offsets[:-1] = starts
-    offsets[-1] = parents_length
-    return offsets
-
-
-# the inputs for this function we get from file ~/awkward/src/awkward/_reducers.py:239, in ArgMax.apply(self, array, parents, starts, shifts, outlength)
 def awkward_reduce_argmax(
     result,
     input_data,
     parents_data,
     offsets_data,
     parents_length,
-    starts,
+    offsets,
     outlength,
 ):
-    index_dtype = parents_data.dtype
+    # offsets has length outlength+1 and is computed by
+    # awkward_ListOffsetArray_reduce_local_outoffsets_64 from the parents array.
+    # offsets[i] is the start of segment i in input_data; offsets[i+1] is its end.
+    start_o = offsets[:-1]
+    end_o = offsets[1:]
 
     def segment_reduce_argmax(segment_id):
         start_idx = start_o[segment_id]
@@ -145,13 +136,9 @@ def awkward_reduce_argmax(
         # return a global index
         return np.argmax(segment) + start_idx
 
-    # Prepare the start and end offsets
-    offsets = starts_to_offsets(starts, parents_length)
-    start_o = offsets[:-1]
-    end_o = offsets[1:]
-
     # Perform the segmented reduce
     # type_wrapper is always cp.int64
+    index_dtype = parents_data.dtype
     type_wrapper = cp.dtype(index_dtype).type
     segment_ids = CountingIterator(type_wrapper(0))
     # TODO: try using segmented_reduce instead when https://github.com/NVIDIA/cccl/issues/6171 is fixed
@@ -160,17 +147,20 @@ def awkward_reduce_argmax(
     return result
 
 
-# this function is called from ~/awkward/src/awkward/_reducers.py:161 (ArgMin.apply())
 def awkward_reduce_argmin(
     result,
     input_data,
     parents_data,
     offsets_data,
     parents_length,
-    starts,
+    offsets,
     outlength,
 ):
-    index_dtype = parents_data.dtype
+    # offsets has length outlength+1 and is computed by
+    # awkward_ListOffsetArray_reduce_local_outoffsets_64 from the parents array.
+    # offsets[i] is the start of segment i in input_data; offsets[i+1] is its end.
+    start_o = offsets[:-1]
+    end_o = offsets[1:]
 
     def segment_reduce_argmin(segment_id):
         start_idx = start_o[segment_id]
@@ -181,13 +171,9 @@ def awkward_reduce_argmin(
         # return a global index
         return np.argmin(segment) + start_idx
 
-    # Prepare the start and end offsets
-    offsets = starts_to_offsets(starts, parents_length)
-    start_o = offsets[:-1]
-    end_o = offsets[1:]
-
     # Perform the segmented reduce
     # type_wrapper is always cp.int64
+    index_dtype = parents_data.dtype
     type_wrapper = cp.dtype(index_dtype).type
     segment_ids = CountingIterator(type_wrapper(0))
     # TODO: try using segmented_reduce instead when https://github.com/NVIDIA/cccl/issues/6171 is fixed

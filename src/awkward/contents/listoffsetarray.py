@@ -1683,7 +1683,7 @@ class ListOffsetArray(ListOffsetMeta[Content], Content):
                 nextstarts,
                 shifts,
                 nextparents,
-                offsets,
+                self._offsets,
                 globalstarts_length,
                 mask,
                 keepdims,

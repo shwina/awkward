@@ -1435,13 +1435,27 @@ class IndexedOptionArray(IndexedOptionMeta[Content], Content):
         else:
             nextshifts = None
 
+        nextoffsets = ak.index.Index64.empty(outlength + 1, nplike=self._backend.nplike)
+        self._backend.maybe_kernel_error(
+            self._backend[
+                "awkward_ListOffsetArray_reduce_local_outoffsets_64",
+                nextoffsets.dtype.type,
+                nextparents.dtype.type,
+            ](
+                nextoffsets.data,
+                nextparents.data,
+                nextparents.length,
+                outlength,
+            )
+        )
+
         out = next._reduce_next(
             reducer,
             negaxis,
             starts,
             nextshifts,
             nextparents,
-            offsets,
+            nextoffsets,
             outlength,
             mask,
             keepdims,
