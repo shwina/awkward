@@ -1,0 +1,147 @@
+diff --git a/src/awkward/_connect/cuda/_compute.py b/src/awkward/_connect/cuda/_compute.py
+index 8fd555ff..dc1db7a6 100644
+--- a/src/awkward/_connect/cuda/_compute.py
++++ b/src/awkward/_connect/cuda/_compute.py
+@@ -51,6 +51,22 @@ def make_segment_views(offsets):
+     return offsets[:-1], offsets[1:]
+ 
+ 
++def _max_segment_size(start_o, end_o):
++    """
++    Largest segment length, as a Python int.
++
++    Passed as the ``max_segment_size`` hint to ``cuda.compute.segmented_reduce``
++    so CCCL can pick a thread/warp-cooperative kernel for jagged data with
++    short segments instead of always falling back to the block-cooperative
++    variant. Cost is one device reduction over ``num_segments`` (much smaller
++    than the segmented reduce itself, which is ``num_elements``) plus a host
++    sync to fetch the scalar.
++    """
++    if start_o.size == 0:
++        return 0
++    return int((end_o - start_o).max())
++
++
+ def normalize_index_dtype(dtype):
+     dt = cp.dtype(dtype)
+     if dt.kind in ("u", "i"):
+@@ -289,6 +305,7 @@ def awkward_reduce_sum(
+         end_offsets_in=end_o,
+         op=OpKind.PLUS,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -330,6 +347,7 @@ def awkward_reduce_sum_bool(
+         end_offsets_in=end_o,
+         op=OpKind.MAXIMUM,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -370,6 +388,7 @@ def awkward_reduce_sum_bool_complex(
+         end_offsets_in=end_o,
+         op=OpKind.MAXIMUM,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -391,6 +410,7 @@ def awkward_reduce_sum_int32_bool_64(
+         end_offsets_in=end_o,
+         op=OpKind.PLUS,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -412,6 +432,7 @@ def awkward_reduce_sum_int64_bool_64(
+         end_offsets_in=end_o,
+         op=OpKind.PLUS,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -440,6 +461,7 @@ def awkward_reduce_sum_complex(
+         end_offsets_in=end_o,
+         op=sum_op,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -472,6 +494,7 @@ def awkward_reduce_prod(
+         end_offsets_in=end_o,
+         op=prod_op,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -500,6 +523,7 @@ def awkward_reduce_prod_complex(
+         end_offsets_in=end_o,
+         op=prod_op,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -539,6 +563,7 @@ def awkward_reduce_prod_bool(
+         end_offsets_in=end_o,
+         op=OpKind.MINIMUM,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -579,6 +604,7 @@ def awkward_reduce_prod_bool_complex(
+         end_offsets_in=end_o,
+         op=prod_op,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -604,6 +630,7 @@ def awkward_reduce_max(
+         end_offsets_in=end_o,
+         op=OpKind.MAXIMUM,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -637,6 +664,7 @@ def awkward_reduce_max_complex(
+         end_offsets_in=end_o,
+         op=lex_max_op,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -659,6 +687,7 @@ def awkward_reduce_min(
+         end_offsets_in=end_o,
+         op=OpKind.MINIMUM,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -692,6 +721,7 @@ def awkward_reduce_min_complex(
+         end_offsets_in=end_o,
+         op=lex_min_op,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
+@@ -736,6 +766,7 @@ def awkward_reduce_countnonzero(
+         end_offsets_in=end_o,
+         op=OpKind.PLUS,
+         h_init=h_init,
++        max_segment_size=_max_segment_size(start_o, end_o),
+     )
+ 
+ 
